@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Dependências e arquivos gerados (reconstruídos com npm install / npm run build)
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Segredos — nunca versionar (senhas, tokens, chaves, credenciais)
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+credentials*.json
+secrets*
+
+# ---------------------------------------------------------------------------
+# Dados: bancos locais, dumps, backups e exportações (podem conter dados de clientes)
+# ---------------------------------------------------------------------------
+*.sql
+# ...exceto as migrations do Prisma, que fazem parte do projeto
+!apps/api/prisma/migrations/**/migration.sql
+*.dump
+*.backup
+*.bak
+*.db
+*.sqlite
+*.sqlite3
+backup/
+backups/
+backup-*
+*.zip
+
+# ---------------------------------------------------------------------------
+# Logs e temporários
+# ---------------------------------------------------------------------------
+*.log
+logs/
+tmp/
+temp/
+.tmp/
+
+# ---------------------------------------------------------------------------
+# Sistema / editores
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

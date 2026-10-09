@@ -1,0 +1,285 @@
+// Modelo de dados — Dra. Marjane Franco
+// Regras que o Prisma não expressa (ex.: proibição de horários sobrepostos) ficam
+// na migração SQL: prisma/migrations/20261005000000_init/migration.sql
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// CLIENT: reservado (clientes não fazem login — usam o link privado do agendamento).
+/// ADMIN: a profissional (operação da clínica). SUPER_ADMIN: responsável técnico.
+enum Role {
+  CLIENT
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum ProcedureCategory {
+  PELE
+  HARMONIZACAO
+  CORPORAL
+  AVALIACAO
+}
+
+/// Envio de e-mail ao cliente. SENT = aceito pelo servidor de e-mail; SKIPPED = cliente sem e-mail.
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum AppointmentStatus {
+  PENDING // solicitado pelo site, horário reservado até expires_at
+  CONFIRMED // confirmado pela profissional
+  CANCELLED
+  EXPIRED // pré-reserva não confirmada a tempo
+  COMPLETED
+  NO_SHOW
+}
+
+/// Usuários do painel. Senha sempre em hash argon2id — nunca em texto puro.
+model User {
+  id                 String    @id @default(uuid()) @db.Uuid
+  name               String    @db.VarChar(100)
+  /// Sempre em minúsculas
+  email              String    @unique @db.VarChar(120)
+  passwordHash       String    @map("password_hash")
+  role               Role      @default(ADMIN)
+  active             Boolean   @default(true)
+  /// Senha provisória (criação/redefinição): enquanto true, só é possível trocar a senha
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions              Session[]
+  auditLogs             AuditLog[]
+  blockedTimes          BlockedTime[]
+  media                 Media[]
+  confirmedAppointments Appointment[] @relation("AppointmentConfirmedBy")
+  cancelledAppointments Appointment[] @relation("AppointmentCancelledBy")
+
+  @@map("users")
+}
+
+/// Sessão de login. O cookie leva um token aleatório; aqui fica só o hash SHA-256 dele.
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  tokenHash  String   @unique @map("token_hash") @db.Char(64)
+  /// Expiração absoluta; a expiração por inatividade usa last_seen_at
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  ip         String?  @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(200)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Trilha de auditoria: quem fez o quê e quando. Registros nunca são editados.
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// null = ação da cliente (link do agendamento) ou do sistema
+  userId      String?  @map("user_id") @db.Uuid
+  /// Nome no momento da ação (o histórico não muda se o usuário for renomeado ou excluído)
+  actorName   String   @map("actor_name") @db.VarChar(100)
+  action      String   @db.VarChar(60)
+  entity      String   @db.VarChar(40)
+  entityId    String?  @map("entity_id") @db.VarChar(64)
+  description String   @db.VarChar(500)
+  metadata    Json?
+  ip          String?  @db.VarChar(45)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+/// Fotos enviadas pelo painel (já convertidas para WEBP 1200x900, sem metadados).
+model Media {
+  id          String   @id @default(uuid()) @db.Uuid
+  mime        String   @db.VarChar(40)
+  width       Int
+  height      Int
+  bytes       Int
+  data        Bytes
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@map("media")
+}
+
+model Client {
+  id           String        @id @default(uuid()) @db.Uuid
+  name         String        @db.VarChar(100)
+  /// Formato 55 + DDD + número, ex.: 5531998765432
+  phone        String        @unique @db.VarChar(13)
+  email        String?       @db.VarChar(120)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  appointments Appointment[]
+
+  @@map("clients")
+}
+
+model Procedure {
+  id                 String            @id @default(uuid()) @db.Uuid
+  slug               String            @unique @db.VarChar(80)
+  name               String            @db.VarChar(120)
+  category           ProcedureCategory
+  shortDescription   String            @map("short_description") @db.VarChar(300)
+  description        String
+  highlights         String[]
+  durationMinutes    Int               @map("duration_minutes")
+  /// null = "valor sob avaliação"
+  price              Decimal?          @db.Decimal(10, 2)
+  imageUrl           String?           @map("image_url")
+  requiresEvaluation Boolean           @default(false) @map("requires_evaluation")
+  featured           Boolean           @default(false)
+  active             Boolean           @default(true)
+  sortOrder          Int               @default(0) @map("sort_order")
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  appointments       Appointment[]
+
+  @@index([active, sortOrder])
+  @@map("procedures")
+}
+
+model Appointment {
+  id              String            @id @default(uuid()) @db.Uuid
+  clientId        String            @map("client_id") @db.Uuid
+  procedureId     String            @map("procedure_id") @db.Uuid
+  startsAt        DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime          @map("ends_at") @db.Timestamptz(3)
+  /// Duração no momento do agendamento — mudar o procedimento não altera o histórico.
+  durationMinutes Int               @map("duration_minutes")
+  status          AppointmentStatus @default(PENDING)
+  notes           String?           @db.VarChar(500)
+  /// Contato informado NESTE agendamento (o cadastro da cliente não é alterado pelo site).
+  /// null = registro antigo/painel sem contato próprio → usa o cadastro da cliente.
+  contactName     String?           @map("contact_name") @db.VarChar(100)
+  contactEmail    String?           @map("contact_email") @db.VarChar(120)
+  source          String            @default("site") @db.VarChar(20)
+  /// Até quando uma pré-reserva (PENDING) segura o horário.
+  expiresAt       DateTime?         @map("expires_at") @db.Timestamptz(3)
+  /// Hash SHA-256 do token do link privado enviado à cliente
+  manageTokenHash String?           @unique @map("manage_token_hash") @db.Char(64)
+  cancelledAt     DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  /// 'admin' ou 'client'
+  cancelledBy     String?           @map("cancelled_by") @db.VarChar(20)
+  cancelReason    String?           @map("cancel_reason") @db.VarChar(200)
+  /// Usuário do painel que cancelou (null = cancelado pela cliente ou registro antigo)
+  cancelledById   String?           @map("cancelled_by_id") @db.Uuid
+  /// Quando e por quem foi confirmado no painel
+  confirmedAt     DateTime?         @map("confirmed_at") @db.Timestamptz(3)
+  confirmedById   String?           @map("confirmed_by_id") @db.Uuid
+
+  /// E-mail de confirmação enviado à cliente (null = nunca tentado)
+  confirmationEmailStatus   NotificationStatus? @map("confirmation_email_status")
+  confirmationEmailSentAt   DateTime?           @map("confirmation_email_sent_at") @db.Timestamptz(3)
+  confirmationEmailError    String?             @map("confirmation_email_error") @db.VarChar(300)
+  /// Endereço para o qual o e-mail foi enviado (histórico)
+  confirmationEmailTo       String?             @map("confirmation_email_to") @db.VarChar(120)
+  confirmationEmailAttempts Int                 @default(0) @map("confirmation_email_attempts")
+
+  /// Aviso de cancelamento enviado por e-mail (null = não se aplica/não tentado)
+  cancellationEmailStatus   NotificationStatus? @map("cancellation_email_status")
+  cancellationEmailSentAt   DateTime?           @map("cancellation_email_sent_at") @db.Timestamptz(3)
+  cancellationEmailError    String?             @map("cancellation_email_error") @db.VarChar(300)
+  cancellationEmailTo       String?             @map("cancellation_email_to") @db.VarChar(120)
+  cancellationEmailAttempts Int                 @default(0) @map("cancellation_email_attempts")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  procedure       Procedure @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  confirmedBy     User?     @relation("AppointmentConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  cancelledByUser User?     @relation("AppointmentCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+
+  @@index([startsAt])
+  @@index([clientId])
+  @@index([status, expiresAt])
+  @@map("appointments")
+}
+
+/// Expediente: um dia pode ter vários intervalos (ex.: 08:00–12:00 e 13:30–18:00 = almoço).
+model BusinessHour {
+  id        Int     @id @default(autoincrement())
+  /// 0 = domingo … 6 = sábado
+  dayOfWeek Int     @map("day_of_week") @db.SmallInt
+  startTime String  @map("start_time") @db.Char(5)
+  endTime   String  @map("end_time") @db.Char(5)
+  active    Boolean @default(true)
+
+  @@index([dayOfWeek])
+  @@map("business_hours")
+}
+
+/// Folgas, feriados e horários específicos indisponíveis.
+model BlockedTime {
+  id          String   @id @default(uuid()) @db.Uuid
+  startsAt    DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt      DateTime @map("ends_at") @db.Timestamptz(3)
+  reason      String?  @db.VarChar(120)
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([startsAt, endsAt])
+  @@map("blocked_times")
+}
+
+/// Configurações gerais (linha única, id = 1).
+model BusinessSettings {
+  id                      Int      @id @default(1)
+  /// De quantos em quantos minutos os horários são oferecidos
+  slotIntervalMinutes     Int      @default(30) @map("slot_interval_minutes")
+  /// Folga mínima entre dois atendimentos
+  bufferMinutes           Int      @default(0) @map("buffer_minutes")
+  /// Antecedência mínima para agendar pelo site
+  minNoticeMinutes        Int      @default(120) @map("min_notice_minutes")
+  /// Até quantos dias à frente a agenda fica aberta
+  maxDaysAhead            Int      @default(60) @map("max_days_ahead")
+  /// Por quantas horas uma pré-reserva segura o horário
+  pendingHoldHours        Int      @default(12) @map("pending_hold_hours")
+  /// Até quantas horas antes a cliente pode cancelar sozinha pelo link
+  clientCancelNoticeHours Int      @default(24) @map("client_cancel_notice_hours")
+  paymentMethods          String[] @map("payment_methods")
+  address                 String?  @db.VarChar(200)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("business_settings")
+}
+
+/// Configurações técnicas (linha única, id = 1) — apenas SUPER_ADMIN.
+/// Segredos (senhas, chaves, DATABASE_URL) NUNCA ficam no banco: só em variáveis de ambiente.
+model SystemSettings {
+  id                   Int      @id @default(1)
+  /// false = agenda online pausada (o site direciona para o WhatsApp)
+  onlineBookingEnabled Boolean  @default(true) @map("online_booking_enabled")
+  /// Sessão expira após este tempo sem uso
+  sessionIdleMinutes   Int      @default(480) @map("session_idle_minutes")
+  /// Sessão expira após este tempo, mesmo em uso
+  sessionMaxDays       Int      @default(7) @map("session_max_days")
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("system_settings")
+}

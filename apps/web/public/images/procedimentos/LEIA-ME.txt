@@ -1,0 +1,23 @@
+ATENCAO: as fotos atuais sao PLACEHOLDERS do Unsplash (ver CREDITOS.md).
+Para trocar, substitua o arquivo mantendo o MESMO nome - nada no codigo muda.
+
+Fotos dos procedimentos, em .jpg, com o nome exato abaixo.
+Formato ideal: horizontal 4:3 (ex.: 1200x900), ate ~200 KB cada.
+Se um arquivo for apagado, o site mostra a arte nas cores da marca.
+
+tratamento-de-melasma.jpg
+limpeza-de-pele-com-peeling.jpg
+depilacao-a-laser.jpg
+botox.jpg
+harmonizacao-de-labios.jpg
+harmonizacao-de-queixo.jpg
+rinomodelacao.jpg
+bigode-chines.jpg
+tratamento-de-olheiras.jpg
+peim-vasinhos.jpg
+enzimas.jpg
+emagrecimento-mounjaro.jpg
+avaliacao.jpg
+
+Fotos de pacientes (inclusive antes/depois) so com autorizacao por escrito
+da paciente e seguindo as regras do CFM para publicidade medica.
