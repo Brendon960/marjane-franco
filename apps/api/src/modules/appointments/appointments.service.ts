@@ -49,6 +49,9 @@ export const appointmentsService = {
 
     try {
       const appointment = await prisma.$transaction(async (tx) => {
+        // Pedidos do MESMO WhatsApp em fila (liberada no fim da transação): sem isso, pedidos
+        // simultâneos passavam juntos pelas contagens abaixo (limite M3 e duplicidade por procedimento).
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`booking:${input.phone}`}))`;
         await appointmentsRepository.expireStalePending(now, tx);
 
         const available = await availabilityService.slotsFor(procedure, input.date, now, tx);
