@@ -26,8 +26,18 @@ function getTransport(): Transporter {
   return transport;
 }
 
+/** Só para testes automatizados: troca o transporte SMTP por um falso (nenhum e-mail real sai). */
+export function setTransportForTests(fake: Pick<Transporter, 'sendMail' | 'verify'> | undefined) {
+  transport = fake as Transporter | undefined;
+}
+
+/** Mensagens vindas do servidor SMTP nunca carregam a senha (defesa extra antes de gravar/registrar). */
+function redactSecrets(message: string): string {
+  return env.SMTP_PASS ? message.split(env.SMTP_PASS).join('[oculto]') : message;
+}
+
 /** Erros comuns do SMTP traduzidos para a profissional entender o que aconteceu. */
-function describe(error: unknown): string {
+export function describeMailError(error: unknown): string {
   const code = (error as { code?: string }).code;
   switch (code) {
     case 'EAUTH':
@@ -40,7 +50,7 @@ function describe(error: unknown): string {
     case 'EENVELOPE':
       return 'O servidor de e-mail recusou o endereço da cliente. Confira o e-mail cadastrado.';
     default:
-      return `Erro ao enviar o e-mail: ${(error as Error).message?.slice(0, 200) ?? 'desconhecido'}`;
+      return `Erro ao enviar o e-mail: ${redactSecrets((error as Error).message ?? 'desconhecido').slice(0, 200)}`;
   }
 }
 
@@ -69,7 +79,7 @@ export const mailer = {
       await getTransport().verify();
       lastCheck = { ok: true, error: null, at: new Date() };
     } catch (error) {
-      lastCheck = { ok: false, error: describe(error), at: new Date() };
+      lastCheck = { ok: false, error: describeMailError(error), at: new Date() };
     }
     return lastCheck;
   },
@@ -96,7 +106,7 @@ export const mailer = {
       if (info.rejected?.length) throw Object.assign(new Error('rejected'), { code: 'EENVELOPE' });
       return info.messageId;
     } catch (error) {
-      throw new MailSendError(describe(error));
+      throw new MailSendError(describeMailError(error));
     }
   },
 };

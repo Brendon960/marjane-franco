@@ -149,6 +149,13 @@ As permissões ficam em `packages/shared/src/permissions.ts`. **Quem bloqueia é
 
 Para melhor entrega, prefira um e-mail no domínio da clínica ou um serviço transacional com SMTP (Brevo, Amazon SES, Resend).
 
+**Trocou a senha ou o usuário do SMTP?** As variáveis só são lidas quando a API inicia:
+
+- **Local:** `npm run dev` reinicia a API sozinho ao salvar `apps/api/.env`. Em `npm start`, pare e inicie de novo.
+- **Hospedagem:** altere as variáveis no painel do provedor e reinicie/reimplante o serviço.
+
+Para validar sem enviar e-mail: veja o log de inicialização (`E-mail: conexão SMTP OK` ou o motivo da falha) ou, como Super Admin, use **Testar conexão** em `/super-admin` (Visão geral). Nenhum dos dois mostra a senha. Depois, use **Enviar novamente** nos agendamentos que ficaram com falha.
+
 ## Segurança (resumo)
 
 Detalhes, como reportar vulnerabilidades e boas práticas em [SECURITY.md](SECURITY.md).
